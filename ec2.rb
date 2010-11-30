@@ -68,9 +68,11 @@ ssh_options[:keys] = @config[:ssh_keypair] unless (@config[:ssh_keypair] || "").
 
 namespace :ec2 do
   task :bundle do
+    config = load_config
+    ami_id = nil
+    
     rt = Benchmark.realtime {
       detect_euca2ools
-      config = load_config
 
       # Copy the certificate and private key to the remote computer.
       # Have to upload then move with sudo since the SSH user might not
@@ -104,7 +106,9 @@ namespace :ec2 do
       sudo "euca-upload-bundle -b #{s3_path} -m /mnt/image/image.manifest.xml -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]} -U http://s3.amazonaws.com"
 
       puts green("Registering the AMI...")
-      sudo "euca-register -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]} -U http://ec2.amazonaws.com #{s3_path}/image.manifest.xml"
+      sudo "euca-register -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]} -U http://ec2.amazonaws.com #{s3_path}/image.manifest.xml" do |ch, stream, data|
+        ami_id = data.match(/ami\-[a-z0-9]*/i)[0]
+      end
 
       # Cleaning up after myself
       puts green("Cleaning up after myself...")
@@ -112,7 +116,7 @@ namespace :ec2 do
     }
     
     min, sec = rt.divmod(60)
-    puts green("\nDone! Took #{min} minutes and #{sec.to_i} seconds.\n")
+    puts green("\nDone! Took #{min} minutes and #{sec.to_i} seconds.\n\nYour new instance '#{config[:image_name]}' has been registered as #{ami_id}.")
   end
 
   task :detect_euca2ools do
