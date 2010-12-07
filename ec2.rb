@@ -2,6 +2,7 @@ CONFIG_FILE = "config.yaml"
 require 'yaml'
 require 'readline'
 require 'benchmark'
+require 'active_support'
 
 def prompt(msg, default = "", allow_empty = false)
   default = "" if default.nil?
@@ -33,17 +34,32 @@ def bucket_name_for(str)
   str.gsub(/[^a-zA-Z0-9\-_\. ]/, '').gsub(/ /, '_')
 end
 
+def image_name_for(str)
+  bucket_name_for(str)
+end
+
 def colorize(text, color_code)
   "\e[#{color_code}m#{text}\e[0m"
 end
 def red(text); colorize(text, 31); end
 def green(text); colorize(text, 32); end
+def yellow(text); colorize(text, 33); end
 
 load_config
 
 puts green("\nWelcome to EC2Bundlr!\n=====================\n")
 @config[:ec2_hostname]      = prompt("EC2 hostname to bundle",  @config[:ec2_hostname]); save_config; puts ""
-@config[:image_name]        = prompt("AMI name",                @config[:image_name]); save_config; puts ""
+
+loop do
+  @config[:image_name]      = prompt("AMI name",                @config[:image_name]); save_config; puts ""
+
+  if @config[:image_name].length > 128 || @config[:image_name].length < 3 || @config[:image_name].match(/[^a-z0-9\(\)\.\-\/\_\s]/i)
+    puts red("AMI name must be between 3 and 128 characters long, and may contain letters, numbers, '(', ')', '.', '-', '/' and '_'.")
+  else
+    break
+  end
+end
+  
 @config[:s3_bucket_name]    = prompt("S3 bucket name",          @config[:s3_bucket_name]); save_config; puts ""
 
 puts green("\nHow should I connect to '#{@config[:ec2_hostname]}'?\n")
@@ -72,7 +88,7 @@ namespace :ec2 do
     ami_id = nil
     
     rt = Benchmark.realtime {
-      detect_euca2ools
+      detect_ec2_tools
 
       # Copy the certificate and private key to the remote computer.
       # Have to upload then move with sudo since the SSH user might not
@@ -99,15 +115,18 @@ namespace :ec2 do
 
       puts green("Creating the EC2 Bundle...")
       sudo "mkdir -p /mnt/image/"
-      sudo "euca-bundle-vol -d /mnt/image -c /mnt/#{cert_filename} -k /mnt/#{private_key_filename} -u #{config[:amazon_account_id]} -r #{arch}"
-
+      sudo "ec2-bundle-vol -r #{arch} -d /mnt/image -p #{image_name_for(config[:image_name])} -u #{config[:amazon_account_id]} -k /mnt/#{private_key_filename} -c /mnt/#{cert_filename} -s 10240 -e /mnt,/root/.ssh,/home/ubuntu/.ssh,/dev --kernel `curl -s http://169.254.169.254/latest/meta-data/kernel-id`"
+      
       puts green("Uploading the EC2 Bundle to S3...")
       s3_path = "#{config[:s3_bucket_name]}/image_bundles/#{bucket_name_for(config[:image_name])}"
-      sudo "euca-upload-bundle -b #{s3_path} -m /mnt/image/image.manifest.xml -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]} -U http://s3.amazonaws.com"
+      sudo "ec2-upload-bundle -b #{s3_path} -m /mnt/image/#{image_name_for(config[:image_name])}.manifest.xml -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]}"
 
       puts green("Registering the AMI...")
-      sudo "euca-register -a #{config[:amazon_access_key]} -s #{config[:amazon_secret_key]} -U http://ec2.amazonaws.com #{s3_path}/image.manifest.xml" do |ch, stream, data|
-        ami_id = data.match(/ami\-[a-z0-9]*/i)[0]
+      sudo "ec2-register -a #{arch} -n \"#{config[:image_name]}\" -K /mnt/#{private_key_filename} -C /mnt/#{cert_filename} #{s3_path}/#{image_name_for(config[:image_name])}.manifest.xml" do |ch, stream, data|
+        if data && data.match(/ami\-[a-z0-9]*/i)
+          ami_id = data.match(/ami\-[a-z0-9]*/i)[0]
+          break
+        end
       end
 
       # Cleaning up after myself
@@ -119,18 +138,39 @@ namespace :ec2 do
     puts green("\nDone! Took #{min} minutes and #{sec.to_i} seconds.\n\nYour new instance '#{config[:image_name]}' has been registered as #{ami_id}.")
   end
 
-  task :detect_euca2ools do
-    puts green("Detecting if 'euca2ools' is installed...")
+  task :detect_ec2_tools do
+    expected_api_tools_version = "1.3-57419 2010-08-31"
+    expected_ami_tools_version = "1.3-49953 20071010"
+    ec2_api_tools_version, ec2_ami_tools_version = "", ""
 
-    run "euca-version" do |ch, stream, data|
-      data.chomp!
-      if stream == :out && !data.match(/^1\.2/)
-        puts red("WARNING: This script was only tested with version 1.2 of euca2ools, but your version is: #{data}. Use at your own risk!")
-      elsif stream == :out
-        puts green("Detected euca2ools #{data}.")
-      else
-        puts red("Did not find the required package 'euca2ools'. Please install it on the remote host.\n$ apt-get install euca2ools.")
-      end
+    puts green("Detecting if EC2 AMI/API tools are installed...")
+    
+    run("ec2-version") do |ch, stream, data|
+      ec2_api_tools_version += data unless data.blank?
+    end; ec2_api_tools_version = (ec2_api_tools_version || "").chomp.split("\n")[0]
+
+    if expected_api_tools_version == ec2_api_tools_version
+      puts green("Detected EC2 API Tools #{ec2_api_tools_version}. OK.")
+    elsif ec2_api_tools_version.blank?
+      puts red("Couldn't find EC2 API Tools. Exiting.")
+      exit 1
+    else
+      puts yellow("Detected EC2 API Tools #{ec2_api_tools_version}. Expected #{expected_api_tools_version}. Use at your own risks!")
+    end
+
+
+
+    run("ec2-ami-tools-version") do |ch, stream, data|
+      ec2_ami_tools_version += data unless data.blank?
+    end; ec2_ami_tools_version = (ec2_ami_tools_version || "").chomp.split("\n")[0]
+
+    if expected_ami_tools_version == ec2_ami_tools_version
+      puts green("Detected EC2 AMI Tools #{ec2_ami_tools_version}. OK.")
+    elsif ec2_ami_tools_version.blank?
+      puts red("Couldn't find EC2 AMI Tools. Exiting.")
+      exit 1
+    else
+      puts yellow("Detected EC2 AMI Tools #{ec2_ami_tools_version}. Expected #{expected_ami_tools_version}. Use at your own risks!")
     end
   end
 
