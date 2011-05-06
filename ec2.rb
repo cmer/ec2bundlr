@@ -135,7 +135,7 @@ namespace :ec2 do
     }
     
     min, sec = rt.divmod(60)
-    puts green("\nDone! Took #{min} minutes and #{sec.to_i} seconds.\n\nYour new instance '#{config[:image_name]}' has been registered as #{ami_id}.")
+    puts green("\nDone! Took #{min} minutes and #{sec.to_i} seconds.\n\nYour new image '#{config[:image_name]}' has been registered as #{ami_id}.")
   end
 
   task :detect_ec2_tools do
