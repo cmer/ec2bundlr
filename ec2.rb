@@ -115,7 +115,7 @@ namespace :ec2 do
 
       puts green("Creating the EC2 Bundle...")
       sudo "mkdir -p /mnt/image/"
-      sudo "ec2-bundle-vol -r #{arch} -d /mnt/image -p #{image_name_for(config[:image_name])} -u #{config[:amazon_account_id]} -k /mnt/#{private_key_filename} -c /mnt/#{cert_filename} -s 10240 -e /mnt,/home/ubuntu/.ssh,/dev --kernel `curl -s http://169.254.169.254/latest/meta-data/kernel-id`"
+      sudo "ec2-bundle-vol -r #{arch} -d /mnt/image -p #{image_name_for(config[:image_name])} -u #{config[:amazon_account_id]} -k /mnt/#{private_key_filename} -c /mnt/#{cert_filename} -s 10240 -e /mnt,/root/.ssh,/home/ubuntu/.ssh,/dev --kernel `curl -s http://169.254.169.254/latest/meta-data/kernel-id`"
       
       puts green("Uploading the EC2 Bundle to S3...")
       s3_path = "#{config[:s3_bucket_name]}/image_bundles/#{bucket_name_for(config[:image_name])}"
