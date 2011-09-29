@@ -1,8 +1,8 @@
 CONFIG_FILE = "config.yaml"
+
 require 'yaml'
 require 'readline'
 require 'benchmark'
-require 'active_support'
 
 def prompt(msg, default = "", allow_empty = false)
   default = "" if default.nil?
@@ -146,12 +146,12 @@ namespace :ec2 do
     puts green("Detecting if EC2 AMI/API tools are installed...")
     
     run("ec2-version") do |ch, stream, data|
-      ec2_api_tools_version += data unless data.blank?
+      ec2_api_tools_version += data unless data.nil? || data.empty?
     end; ec2_api_tools_version = (ec2_api_tools_version || "").chomp.split("\n")[0]
 
     if expected_api_tools_version == ec2_api_tools_version
       puts green("Detected EC2 API Tools #{ec2_api_tools_version}. OK.")
-    elsif ec2_api_tools_version.blank?
+    elsif ec2_api_tools_version.nil? || ec2_api_tools_version.empty?
       puts red("Couldn't find EC2 API Tools. Exiting.")
       exit 1
     else
@@ -161,12 +161,12 @@ namespace :ec2 do
 
 
     run("ec2-ami-tools-version") do |ch, stream, data|
-      ec2_ami_tools_version += data unless data.blank?
+      ec2_ami_tools_version += data unless data.nil? || data.empty?
     end; ec2_ami_tools_version = (ec2_ami_tools_version || "").chomp.split("\n")[0]
 
     if expected_ami_tools_version == ec2_ami_tools_version
       puts green("Detected EC2 AMI Tools #{ec2_ami_tools_version}. OK.")
-    elsif ec2_ami_tools_version.blank?
+    elsif ec2_ami_tools_version.nil? || ec2_ami_tools_version.empty?
       puts red("Couldn't find EC2 AMI Tools. Exiting.")
       exit 1
     else
