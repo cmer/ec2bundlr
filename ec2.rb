@@ -83,6 +83,8 @@ set :user, @config[:ssh_user]
 ssh_options[:keys] = @config[:ssh_keypair] unless (@config[:ssh_keypair] || "").empty?
 
 namespace :ec2 do
+  
+  desc "Bundle an EC2 instance into an AMI"
   task :bundle do
     config = load_config
     ami_id = nil
